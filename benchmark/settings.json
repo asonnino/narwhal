@@ -6,7 +6,7 @@
     "port": 5000,
     "repo": {
         "name": "narwhal",
-        "url": "https://github.com/asonnino/narwhal",
+        "url": "https://github.com/0xEigenLabs/narwhal",
         "branch": "bullshark"
     },
     "instances": {
