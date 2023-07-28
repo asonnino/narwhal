@@ -6,10 +6,10 @@ use config::Import as _;
 use config::{Committee, KeyPair, Parameters, WorkerId};
 use consensus::Consensus;
 use env_logger::Env;
-use primary::{Certificate, Primary};
+use primary::{Certificate, Primary, Header};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
-use worker::Worker;
+use worker::{Worker, Batch, WorkerMessage};
 
 /// The default channel capacity.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -101,7 +101,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 keypair,
                 committee.clone(),
                 parameters.clone(),
-                store,
+                store.clone(),
                 /* tx_consensus */ tx_new_certificates,
                 /* rx_consensus */ rx_feedback,
             );
@@ -121,21 +121,44 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 .unwrap()
                 .parse::<WorkerId>()
                 .context("The worker id must be a positive integer")?;
-            Worker::spawn(keypair.name, id, committee, parameters, store);
+            Worker::spawn(keypair.name, id, committee, parameters, store.clone());
         }
         _ => unreachable!(),
     }
 
     // Analyze the consensus' output.
-    analyze(rx_output).await;
+    analyze(store, rx_output).await;
 
     // If this expression is reached, the program ends and all other tasks terminate.
     unreachable!();
 }
 
 /// Receives an ordered list of certificates and apply any application-specific logic.
-async fn analyze(mut rx_output: Receiver<Certificate>) {
+async fn analyze(mut store: Store, mut rx_output: Receiver<Certificate>) {
     while let Some(_certificate) = rx_output.recv().await {
         // NOTE: Here goes the application logic.
+        log::info!("id: {}", _certificate.header.id);
+        log::info!("header: {},  payload sz {}", _certificate.header, _certificate.header.payload.len());
+        let keys = _certificate.header.payload.keys();
+        for x in keys {
+            log::info!("keys: {}", x);
+            let value = store.read(x.to_vec()).await;
+            log::info!("value : {:?}", value);
+            if value.is_err() {
+                log::info!("error: {:?}", value);
+                continue;
+            }
+            let value = value.unwrap();
+            if value.is_none() {
+                continue;
+            }
+            let serialized = value.unwrap();
+            let header: Header = bincode::deserialize::<Header>(&serialized).unwrap();
+            match bincode::deserialize(&serialized) {
+                Ok(WorkerMessage::Batch(batch)) => log::info!("batch: {:?}", batch[0]),
+                _ => log::warn!("Serialization error: {:?}", serialized),
+            }
+
+        }
     }
 }
